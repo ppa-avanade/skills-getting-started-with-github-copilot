@@ -27,7 +27,10 @@ function displayActivities(activities) {
 
     const participantsHtml =
       activity.participants && activity.participants.length > 0
-        ? `<ul class="participants-list">${activity.participants.map((email) => `<li>${email}</li>`).join("")}</ul>`
+        ? `<ul class="participants-list">${activity.participants.map((email) => `<li>
+            <span class="participant-email">${email}</span>
+            <button class="delete-participant" onclick="removeParticipant('${name}', '${email}')" title="Supprimer ce participant">✕</button>
+          </li>`).join("")}</ul>`
         : '<p class="no-participants">Aucun participant inscrit</p>';
 
     activityCard.innerHTML = `
@@ -62,7 +65,12 @@ async function handleSignup(event) {
 
   const email = document.getElementById("email").value;
   const activity = document.getElementById("activity").value;
-  const messageDiv = document.getElementById("message");
+  const submitButton = event.target.querySelector('button[type="submit"]');
+  const originalButtonText = submitButton.textContent;
+
+  // Disable button and show loading state
+  submitButton.disabled = true;
+  submitButton.textContent = "Inscription en cours...";
 
   try {
     const response = await fetch(
@@ -74,9 +82,24 @@ async function handleSignup(event) {
 
     if (response.ok) {
       const result = await response.json();
+      
+      // Show success message
       showMessage("success", result.message);
+      
+      // Reset form
       document.getElementById("signup-form").reset();
-      loadActivities(); // Reload to show updated participants
+      
+      // Show loading indicator while refreshing activities
+      const activitiesList = document.getElementById("activities-list");
+      const originalContent = activitiesList.innerHTML;
+      activitiesList.innerHTML = '<p class="loading">Mise à jour des activités...</p>';
+      
+      // Reload activities and wait for completion
+      await loadActivities();
+      
+      // Additional visual feedback that update is complete
+      showMessage("info", "Liste des activités mise à jour !");
+      
     } else {
       const error = await response.json();
       showMessage("error", error.detail);
@@ -84,6 +107,10 @@ async function handleSignup(event) {
   } catch (error) {
     showMessage("error", "Une erreur est survenue lors de l'inscription.");
     console.error("Signup error:", error);
+  } finally {
+    // Re-enable button
+    submitButton.disabled = false;
+    submitButton.textContent = originalButtonText;
   }
 }
 
@@ -96,4 +123,49 @@ function showMessage(type, text) {
   setTimeout(() => {
     messageDiv.classList.add("hidden");
   }, 5000);
+}
+
+async function removeParticipant(activityName, email) {
+  if (!confirm(`Êtes-vous sûr de vouloir supprimer ${email} de l'activité "${activityName}" ?`)) {
+    return;
+  }
+
+  try {
+    // Show loading indicator
+    const activitiesList = document.getElementById("activities-list");
+    const originalContent = activitiesList.innerHTML;
+    activitiesList.innerHTML = '<p class="loading">Suppression en cours...</p>';
+
+    const response = await fetch(
+      `/activities/${encodeURIComponent(activityName)}/remove?email=${encodeURIComponent(email)}`,
+      {
+        method: "DELETE",
+      }
+    );
+
+    if (response.ok) {
+      const result = await response.json();
+      showMessage("success", result.message);
+      
+      // Reload activities and wait for completion
+      await loadActivities();
+      
+      // Additional confirmation that update is complete
+      showMessage("info", "Liste des participants mise à jour !");
+      
+    } else {
+      // Restore original content on error
+      activitiesList.innerHTML = originalContent;
+      const error = await response.json();
+      showMessage("error", error.detail);
+    }
+  } catch (error) {
+    // Restore original content on error
+    const activitiesList = document.getElementById("activities-list");
+    if (activitiesList.innerHTML.includes("Suppression en cours...")) {
+      await loadActivities(); // Reload to restore proper state
+    }
+    showMessage("error", "Une erreur est survenue lors de la suppression.");
+    console.error("Remove participant error:", error);
+  }
 }
